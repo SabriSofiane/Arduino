@@ -60,7 +60,7 @@ void tacheAffichage(void* parameter) {
   delay(5000);
 
   for (;;) {
-    //affichage des structures
+    //affichage de la structure GPS
     Serial.println("Structure GPS:");
     Serial.println(donneesGPS.latitude, 6);
     Serial.println(donneesGPS.longitude, 6);
@@ -71,7 +71,12 @@ void tacheAffichage(void* parameter) {
     Serial.println(heureGPS.heure);
     Serial.println(heureGPS.minute);
     Serial.println(heureGPS.seconde);
+    //affichage de la structure radiation
+    Serial.println("Structure geiger:");
+    Serial.println(capteur.cpm);
+
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(40000)); // reveille toutes les 40s
+   
 
   }
 
@@ -178,9 +183,55 @@ void tacheGPS(void* parameter) {
 
 }
 
+
+
+void onRadiation() {
+
+  Serial.println("Un rayon gamma est apparu");
+  Serial.print(radiationWatch.uSvh());
+  Serial.print(" uSv/h +/- ");
+  Serial.println(radiationWatch.uSvhError());
+  Serial.print(" CPM : ");
+  Serial.println(radiationWatch.cpm());
+//  xSemaphoreTake(mutex, portMAX_DELAY);
+//  capteur.cpm = radiationWatch.cpm();
+//  xSemaphoreGive(mutex);
+}
+
+void onNoise() {
+  Serial.println("Argh, bruit, SVP arreter de bouger");
+}
+
+  
+void tacheRadiations(void* parameter) {
+
+  TickType_t xLastWakeTime;
+  xLastWakeTime = xTaskGetTickCount();
+
+  //Register the callbacks.
+
+
+  for (;;) {
+    Serial.println("radiations");
+    radiationWatch.loop();
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    capteur.cpm = radiationWatch.cpm();
+    xSemaphoreGive(mutex);
+    // delay(30000);
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(30000)); // reveille toutes les 30s
+
+
+
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   serialGps.begin(4800, SERIAL_8N1, 16, 17);
+  radiationWatch.setup();
+  radiationWatch.registerRadiationCallback(&onRadiation);
+  radiationWatch.registerNoiseCallback(&onNoise);
+
 
 
   //mutex
@@ -201,10 +252,13 @@ void setup() {
     1, /* priority of the task */
     NULL); /* Task handle to keep track of created task */
 
-
-
-
-
+  xTaskCreate(
+    tacheRadiations, /* Task function. */
+    "tacheRadiations", /* name of task. */
+    10000, /* Stack size of task */
+    NULL, /* parameter of the task */
+    1, /* priority of the task */
+    NULL); /* Task handle to keep track of created task */
 
 
 
