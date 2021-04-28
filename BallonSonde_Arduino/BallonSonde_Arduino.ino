@@ -74,9 +74,14 @@ void tacheAffichage(void* parameter) {
     //affichage de la structure radiation
     Serial.println("Structure geiger:");
     Serial.println(capteur.cpm);
+    //affichage de la structure BME280
+    Serial.println("Structure bme280:");
+    Serial.println(capteur.temperature);
+    Serial.println(capteur.humidite);
+    Serial.println(capteur.pression);
 
     vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(40000)); // reveille toutes les 40s
-   
+
 
   }
 
@@ -193,16 +198,16 @@ void onRadiation() {
   Serial.println(radiationWatch.uSvhError());
   Serial.print(" CPM : ");
   Serial.println(radiationWatch.cpm());
-//  xSemaphoreTake(mutex, portMAX_DELAY);
-//  capteur.cpm = radiationWatch.cpm();
-//  xSemaphoreGive(mutex);
+  //  xSemaphoreTake(mutex, portMAX_DELAY);
+  //  capteur.cpm = radiationWatch.cpm();
+  //  xSemaphoreGive(mutex);
 }
 
 void onNoise() {
   Serial.println("Argh, bruit, SVP arreter de bouger");
 }
 
-  
+
 void tacheRadiations(void* parameter) {
 
   TickType_t xLastWakeTime;
@@ -212,7 +217,7 @@ void tacheRadiations(void* parameter) {
 
 
   for (;;) {
-    Serial.println("radiations");
+    //Serial.println("radiations");
     radiationWatch.loop();
     xSemaphoreTake(mutex, portMAX_DELAY);
     capteur.cpm = radiationWatch.cpm();
@@ -223,6 +228,86 @@ void tacheRadiations(void* parameter) {
 
 
   }
+}
+
+
+void printBME280Data(Stream* client, BME280I2C* bme) {
+  float temp(NAN), hum(NAN), pres(NAN);
+
+  //int temperature;
+  //int humidite;
+  BME280::TempUnit tempUnit(BME280::TempUnit_Celsius);
+  BME280::PresUnit presUnit(BME280::PresUnit_hPa);
+
+  bme->read(pres, temp, hum, tempUnit, presUnit);
+
+  client->print("Temp: ");
+  // temperature = (int)temp;
+  client->print(temp); // temp
+  client->print("°" + String(tempUnit == BME280::TempUnit_Celsius ? 'C' : 'F'));
+  client->print("\t\tHumidity: ");
+  // humidite = (int)hum;
+  client->print(hum); //hum
+  client->print("% RH");
+  client->print("\t\tPressure: ");
+  client->print(pres);
+  client->println("hPa");
+
+
+  //delay(60000); //Récuperation des données toutes les minutes
+  xSemaphoreTake(mutex, portMAX_DELAY);
+  capteur.temperature = temp;
+  capteur.humidite = hum;
+  capteur.pression = pres;
+  xSemaphoreGive(mutex);
+
+
+
+}
+
+
+void tacheBME280(void * parameter) {
+  BME280I2C::Settings settings(
+    BME280::OSR_X1,
+    BME280::OSR_X1,
+    BME280::OSR_X1, BME280::Mode_Forced,
+    BME280::StandbyTime_1000ms,
+    BME280::Filter_Off,
+    BME280::SpiEnable_False,
+    BME280I2C::I2CAddr_0x77 // 0x77 I2C address pour BME 280 Adafruit.
+  );
+  BME280I2C bme(settings);
+  TickType_t xLastWakeTime;
+  xLastWakeTime = xTaskGetTickCount();
+
+  while (!Serial) {
+  } // Wait
+
+  Wire.begin();
+
+  while (!bme.begin()) {
+    Serial.println("Could not find BME280 sensor!");
+    delay(1000);
+  }
+
+  switch (bme.chipModel()) {
+    case BME280::ChipModel_BME280:
+      Serial.println("Found BME280 sensor! Success.");
+      break;
+    case BME280::ChipModel_BMP280:
+      Serial.println("Found BMP280 sensor! No Humidity available.");
+      break;
+    default:
+      Serial.println("Found UNKNOWN sensor! Error!");
+  }
+  for (;;) {
+    //Serial.println(" ");
+    printBME280Data(&Serial, &bme);
+
+    // delay(3000);
+    vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(30000)); // reveille toutes les 30s
+  }
+
 }
 
 void setup() {
@@ -255,6 +340,14 @@ void setup() {
   xTaskCreate(
     tacheRadiations, /* Task function. */
     "tacheRadiations", /* name of task. */
+    10000, /* Stack size of task */
+    NULL, /* parameter of the task */
+    1, /* priority of the task */
+    NULL); /* Task handle to keep track of created task */
+
+  xTaskCreate(
+    tacheBME280, /* Task function. */
+    "tacheBME280", /* name of task. */
     10000, /* Stack size of task */
     NULL, /* parameter of the task */
     1, /* priority of the task */
